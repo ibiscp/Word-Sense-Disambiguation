@@ -4,6 +4,8 @@ import glob
 import re
 from argparse import ArgumentParser
 from nltk.corpus import wordnet as wn
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.text import Tokenizer
 
 def parse_args():
     parser = ArgumentParser()
@@ -45,13 +47,16 @@ def create_dictionary(dataset_name, gold2dic):
 
     sentence = []
     sentenceNet = []
+    deletedSentences = 0
 
     for event, elem in iter(context):
 
         if elem.tag == "sentence":# and event == 'start':
             print(elem.attrib['id'])
-            words.append(sentence)
-            wordnet.append(sentenceNet)
+            if len(words)<5:
+                deletedSentences += 1
+                words.append(' '.join(sentence))
+                wordnet.append(' '.join(sentenceNet))
             sentence = []
             sentenceNet = []
 
@@ -78,9 +83,11 @@ def create_dictionary(dataset_name, gold2dic):
     save(words, '../resources/' + 'words')
     save(wordnet, '../resources/' + 'wordnet')
 
+    print('\nSentences removed:', deletedSentences)
+
     return words, wordnet
 
-def load_data(dataset_name, path="../resources/", gold_name='gold2dic'):
+def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 100):
 
     # Check if gold2dic exists
     if glob.glob(path + gold_name + '.pkl'):
@@ -95,20 +102,106 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic'):
     if glob.glob(path + 'words' + '.pkl') and glob.glob(path + 'wordnet' + '.pkl'):
         print('\nSentences found!')
         words = load(path + 'words')
-        words = load(path + 'wordnet')
+        wordnet = load(path + 'wordnet')
     else:
         words, wordnet = create_dictionary(dataset_name, gold2dic)
 
+    numberSentences = len(words)
+    concatenated = words + wordnet
+
+    # Character dictionary
+    word2id = dict()
+    word2id["<PAD>"] = 0 #zero is not casual!
+    word2id["<UNK>"] = 1 #OOV are mapped as <UNK>
+    id = 2
+
+    maxsentence = 0
+    minsentence = 10000
+    wordtokens = 0
+    sensetokens = 0
+    wordsIds = []
+    wordnetIds = []
+
+    # Tokenizer
+    t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t\n')
+
+    t.fit_on_texts(words)
+    t.fit_on_texts(wordnet)
+
+    # print(t.word_counts)
+    # print(t.document_count)
+    # print(t.word_index)
+    # print(t.word_docs)
+    #
+    # # integer encode documents
+    # encoded_docs = t.texts_to_matrix(words, mode='count')
+    # print(encoded_docs)
+
+    wordsIds = t.texts_to_sequences(words)
+    wordnetIds = t.texts_to_sequences(wordnet)
+
+    # # Convert word sentences to ids
+    # for sentence in words:
+    #     maxsentence = max(maxsentence, len(sentence))
+    #     minsentence = min(minsentence, len(sentence))
+    #     sentenceId = []
+    #
+    #     for word in sentence:
+    #         if word not in word2id:
+    #             word2id[word] = id
+    #             id += 1
+    #             wordtokens += 1
+    #
+    #         sentenceId.append(word2id[word])
+    #
+    #     wordsIds.append(sentenceId)
+    #
+    # # Convert sense sentences to ids
+    # for sentence in wordnet:
+    #     sentenceId = []
+    #
+    #     for word in sentence:
+    #         if word not in word2id:
+    #             word2id[word] = id
+    #             id += 1
+    #
+    #             if word.startswith('wn:'):
+    #                 sensetokens += 1
+    #             else:
+    #                 print('Error')
+    #
+    #         sentenceId.append(word2id[word])
+    #
+    #     wordnetIds.append(sentenceId)
+
+    #wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+    #wordnetIds = pad_sequences(wordnetIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+
+    print('\n\nPREPROCESSING SUMMARY\n')
+    print('Total word tokens:', wordtokens)
+    print('Total sense tokens:', sensetokens)
+    print('Biggest sentence:', maxsentence)
+    print('Smallest sentence:', minsentence)
+
     # Print sample sentences
     print('\nSample word sentences')
-    for i in words[0:10]:
+    for i in words[0:5]:
         print(i)
 
     print('\nSample wordnet sentences')
-    for i in wordnet[0:10]:
+    for i in wordnet[0:5]:
         print(i)
 
-    return words, wordnet
+    # Print sample sentences with ids
+    print('\nSample id sentences')
+    for i in wordsIds[0:5]:
+        print(i)
+
+    print('\nSample id sense sentences')
+    for i in wordnetIds[0:5]:
+        print(i)
+
+    return wordsIds, wordnetIds
 
 if __name__ == '__main__':
     args = parse_args()

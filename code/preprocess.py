@@ -6,6 +6,8 @@ from argparse import ArgumentParser
 from nltk.corpus import wordnet as wn
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.utils import to_categorical
 
 def parse_args():
     parser = ArgumentParser()
@@ -88,7 +90,7 @@ def create_dictionary(dataset_name, gold2dic):
 
     return words, wordnet
 
-def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 24):
+def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 7):
 
     # Check if gold2dic exists
     if glob.glob(path + gold_name + '.pkl'):
@@ -107,46 +109,30 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     else:
         words, wordnet = create_dictionary(dataset_name, gold2dic)
 
+    # Check if tokenizer exists
+    if glob.glob(path + 'tokenizer' + '.pkl'):
+        print('\nTokenizer found!')
+        t = load(path + 'tokenizer')
+    else:
+        # Tokenizer
+        t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t')
+        t.fit_on_texts(words)
+        t.fit_on_texts(wordnet)
+        save(t, path + 'tokenizer')
 
-    # Character dictionary
-    word2id = dict()
-    word2id["<PAD>"] = 0 #zero is not casual!
-    word2id["<UNK>"] = 1 #OOV are mapped as <UNK>
-    id = 2
-
-    maxsentence = 0
-    minsentence = 10000
-    wordtokens = 0
-    sensetokens = 0
-    wordsIds = []
-    wordnetIds = []
-
-    # Tokenizer
-    t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t')
-
-    t.fit_on_texts(words)
-    t.fit_on_texts(wordnet)
-
+    # Apply tokenizer
     wordsIds = t.texts_to_sequences(words)
     wordnetIds = t.texts_to_sequences(wordnet)
-    #
-    # ibis = 0
-    # for i in range(len(wordsIds)):
-    #     if len(wordsIds[i]) > ibis:
-    #         ibis = len(wordsIds[i])
-    #         print(wordsIds[i])
-    #         bla = []
-    #         for id in wordsIds[i]:
-    #             bla.append(t.index_word[id])
-    #         print(' '.join(bla))
-    #
-    # print(ibis)
 
-    print('\nPREPROCESSING SUMMARY\n')
-    print('Total words tokens:', len([y for y in t.word_index if not y.startswith('wn:')]))
-    print('Total sense tokens:', len([y for y in t.word_index if y.startswith('wn:')]))
-    print('Biggest sentence:', max(len(l) for l in wordsIds))
-    print('Smallest sentence:', min(len(l) for l in wordsIds))
+    # TODO consider only high frequence words
+    # TODO consider lenght of 5 for the sentences
+
+    # Print summary
+    print('\nPREPROCESSING SUMMARY')
+    print('\tTotal words tokens:', len([y for y in t.word_index if not y.startswith('wn:')]))
+    print('\tTotal sense tokens:', len([y for y in t.word_index if y.startswith('wn:')]))
+    print('\tBiggest sentence:', max(len(l) for l in wordsIds))
+    print('\tSmallest sentence:', min(len(l) for l in wordsIds))
 
     # Print sample sentences
     print('\nSample word sentences')
@@ -160,29 +146,28 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     # Print sample sentences with ids
     print('\nSample id sentences')
     for i in wordsIds[0:5]:
-        print(' '.join(i))
+        print(i)
 
     print('\nSample id sense sentences')
     for i in wordnetIds[0:5]:
-        print(' '.join(i))
+        print(i)
 
     # Add padding
-    wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+    wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size)
     wordnetIds = pad_sequences(wordnetIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
 
-    return wordsIds, wordnetIds, t
+    # To categorical
+    wordnetIds = to_categorical(wordnetIds, num_classes=len([y for y in t.word_index]))
+
+    # Train test split
+    train_x, dev_x, train_y, dev_y = train_test_split(wordsIds, wordnetIds, test_size=.1)
+
+    # Dataset
+    dataset = {'train_x': train_x, 'dev_x': dev_x, 'train_y': train_y, 'dev_y': dev_y}
+
+    return dataset, t
 
 if __name__ == '__main__':
     args = parse_args()
 
     _ = load_data(dataset_name=args.dataset_name, path=args.resource_folder, gold_name=args.gold_name)
-
-    # ibis = "long%3:00:02::"
-    # lemma =
-    #
-    # print(synset_id)
-
-
-
-    #gold2dic()
-    #create_dictionary(args.dataset_name, args.gold_name)

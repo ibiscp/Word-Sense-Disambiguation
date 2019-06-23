@@ -53,8 +53,9 @@ def create_dictionary(dataset_name, gold2dic):
 
         if elem.tag == "sentence":# and event == 'start':
             print(elem.attrib['id'])
-            if len(words)<5:
+            if len(sentence) < 5:
                 deletedSentences += 1
+            else:
                 words.append(' '.join(sentence))
                 wordnet.append(' '.join(sentenceNet))
             sentence = []
@@ -87,7 +88,7 @@ def create_dictionary(dataset_name, gold2dic):
 
     return words, wordnet
 
-def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 100):
+def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 24):
 
     # Check if gold2dic exists
     if glob.glob(path + gold_name + '.pkl'):
@@ -106,8 +107,6 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     else:
         words, wordnet = create_dictionary(dataset_name, gold2dic)
 
-    numberSentences = len(words)
-    concatenated = words + wordnet
 
     # Character dictionary
     word2id = dict()
@@ -123,65 +122,31 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     wordnetIds = []
 
     # Tokenizer
-    t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t\n')
+    t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t')
 
     t.fit_on_texts(words)
     t.fit_on_texts(wordnet)
 
-    # print(t.word_counts)
-    # print(t.document_count)
-    # print(t.word_index)
-    # print(t.word_docs)
-    #
-    # # integer encode documents
-    # encoded_docs = t.texts_to_matrix(words, mode='count')
-    # print(encoded_docs)
-
     wordsIds = t.texts_to_sequences(words)
     wordnetIds = t.texts_to_sequences(wordnet)
+    #
+    # ibis = 0
+    # for i in range(len(wordsIds)):
+    #     if len(wordsIds[i]) > ibis:
+    #         ibis = len(wordsIds[i])
+    #         print(wordsIds[i])
+    #         bla = []
+    #         for id in wordsIds[i]:
+    #             bla.append(t.index_word[id])
+    #         print(' '.join(bla))
+    #
+    # print(ibis)
 
-    # # Convert word sentences to ids
-    # for sentence in words:
-    #     maxsentence = max(maxsentence, len(sentence))
-    #     minsentence = min(minsentence, len(sentence))
-    #     sentenceId = []
-    #
-    #     for word in sentence:
-    #         if word not in word2id:
-    #             word2id[word] = id
-    #             id += 1
-    #             wordtokens += 1
-    #
-    #         sentenceId.append(word2id[word])
-    #
-    #     wordsIds.append(sentenceId)
-    #
-    # # Convert sense sentences to ids
-    # for sentence in wordnet:
-    #     sentenceId = []
-    #
-    #     for word in sentence:
-    #         if word not in word2id:
-    #             word2id[word] = id
-    #             id += 1
-    #
-    #             if word.startswith('wn:'):
-    #                 sensetokens += 1
-    #             else:
-    #                 print('Error')
-    #
-    #         sentenceId.append(word2id[word])
-    #
-    #     wordnetIds.append(sentenceId)
-
-    #wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
-    #wordnetIds = pad_sequences(wordnetIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
-
-    print('\n\nPREPROCESSING SUMMARY\n')
-    print('Total word tokens:', wordtokens)
-    print('Total sense tokens:', sensetokens)
-    print('Biggest sentence:', maxsentence)
-    print('Smallest sentence:', minsentence)
+    print('\nPREPROCESSING SUMMARY\n')
+    print('Total words tokens:', len([y for y in t.word_index if not y.startswith('wn:')]))
+    print('Total sense tokens:', len([y for y in t.word_index if y.startswith('wn:')]))
+    print('Biggest sentence:', max(len(l) for l in wordsIds))
+    print('Smallest sentence:', min(len(l) for l in wordsIds))
 
     # Print sample sentences
     print('\nSample word sentences')
@@ -195,13 +160,17 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     # Print sample sentences with ids
     print('\nSample id sentences')
     for i in wordsIds[0:5]:
-        print(i)
+        print(' '.join(i))
 
     print('\nSample id sense sentences')
     for i in wordnetIds[0:5]:
-        print(i)
+        print(' '.join(i))
 
-    return wordsIds, wordnetIds
+    # Add padding
+    wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+    wordnetIds = pad_sequences(wordnetIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+
+    return wordsIds, wordnetIds, t
 
 if __name__ == '__main__':
     args = parse_args()

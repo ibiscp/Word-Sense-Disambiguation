@@ -115,7 +115,8 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
         t = load(path + 'tokenizer')
     else:
         # Tokenizer
-        t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t')
+        # num_words=20000,
+        t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t', oov_token='<OOV>')
         t.fit_on_texts(words)
         t.fit_on_texts(wordnet)
         save(t, path + 'tokenizer')

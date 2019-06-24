@@ -8,11 +8,14 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
+import random
+import numpy as np
 
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("resource_folder", nargs='?', default='../resources/', help="Resource folder path")
-    parser.add_argument("dataset_name", nargs='?', default='../resources/semcor.data.xml', help="Name of the xml file to use")
+    parser.add_argument("train_dataset", nargs='?', default='../resources/WSD_Evaluation_Framework/Training_Corpora/SemCor/semcor.data.xml', help="Name of the xml file to use to train")
+    parser.add_argument("dev_dataset", nargs='?', default='../resources/WSD_Evaluation_Framework/Evaluation_Datasets/ALL/ALL.data.xml', help="Name of the xml file to use to test")
     parser.add_argument("gold_name", nargs='?', default='gold2dic', help="Name of the gold2dic file to use")
 
     return parser.parse_args()
@@ -27,7 +30,7 @@ def load(name):
     with open(name + '.pkl', 'rb') as f:
         return pickle.load(f)
 
-def fngold2dic(filepath="../resources/semcor+omsti.gold.key.txt"):
+def file2dic(filepath, save_file=False):
     mapping = {}
 
     with open(filepath) as f:
@@ -37,10 +40,12 @@ def fngold2dic(filepath="../resources/semcor+omsti.gold.key.txt"):
             map = l.split()
             mapping[map[0]] = map[1]
 
-    save(mapping, '../resources/gold2dic')
+    if save_file:
+        save(mapping, '../resources/gold2dic')
+
     return mapping
 
-def create_dictionary(dataset_name, gold2dic):
+def create_dictionary(dataset_name, gold2dic, train=False):
     words = []
     wordnet = []
 
@@ -50,12 +55,16 @@ def create_dictionary(dataset_name, gold2dic):
     sentence = []
     sentenceNet = []
     deletedSentences = 0
+    dictionary = {}
 
     for event, elem in iter(context):
 
-        if elem.tag == "sentence":# and event == 'start':
-            print(elem.attrib['id'])
-            if len(sentence) < 5:
+        if elem.tag == "sentence":
+
+            #if(int(elem.attrib['id'])%10 == 0)
+            print('\t' + elem.attrib['id'])
+
+            if len(sentence) < 1:
                 deletedSentences += 1
             else:
                 words.append(' '.join(sentence))
@@ -63,34 +72,38 @@ def create_dictionary(dataset_name, gold2dic):
             sentence = []
             sentenceNet = []
 
-        elif elem.tag == "wf" or elem.tag == "instance":# and event == 'start':
-            #word = {}
-            #word['lemma'] = elem.attrib["lemma"].lower()
-            #word['text'] = elem.text.lower()
-            word = elem.attrib["lemma"].lower()
-            sentence.append(word)
+        elif elem.tag == "wf" or elem.tag == "instance":
+            lemma = elem.attrib["lemma"].lower()
+            sentence.append(lemma)
 
             if elem.tag == "instance":
                 dataset_id = elem.attrib["id"]
-                #word['id'] = dataset_id
                 synset = wn.lemma_from_key(gold2dic[dataset_id]).synset()
                 synset_id = "wn:" + str(synset.offset()).zfill(8) + synset.pos()
-                #word['wordnet'] = synset_id
                 sentenceNet.append(synset_id)
+                if lemma not in dictionary:
+                    dictionary[lemma] = [synset_id]
+                elif synset_id not in dictionary[lemma]:
+                    dictionary[lemma].append(synset_id)
             else:
-                sentenceNet.append(word)
-            #sentence.append(word)
+                sentenceNet.append(lemma)
 
         elem.clear()
 
-    save(words, '../resources/' + 'words')
-    save(wordnet, '../resources/' + 'wordnet')
+    if train:
+        save(dictionary, '../resources/' + 'synsetsdic')
+        flag = 'train'
+    else:
+        flag = 'dev'
+
+    save(words, '../resources/' + 'words_' + flag)
+    save(wordnet, '../resources/' + 'wordnet_' + flag)
 
     print('\nSentences removed:', deletedSentences)
 
     return words, wordnet
 
-def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence_size = 7):
+def load_data(train_dataset, dev_dataset, path="../resources/", gold_name='gold2dic', sentence_size = 10, num_words=20000):
 
     # Check if gold2dic exists
     if glob.glob(path + gold_name + '.pkl'):
@@ -99,69 +112,88 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
     else:
         print('\nMapping not found!')
         print('\nBuilding mapping from file')
-        gold2dic = fngold2dic()
+        gold2dic_train = file2dic(filepath= path + "WSD_Evaluation_Framework/Training_Corpora/SemCor+OMSTI/semcor+omsti.gold.key.txt")
+        gold2dic_dev = file2dic(filepath= path + "WSD_Evaluation_Framework/Evaluation_Datasets/ALL/ALL.gold.key.txt")
+        gold2dic = {**gold2dic_train, **gold2dic_dev}
+        save(gold2dic, '../resources/gold2dic')
 
-    # Check if sentences exists
-    if glob.glob(path + 'words' + '.pkl') and glob.glob(path + 'wordnet' + '.pkl'):
-        print('\nSentences found!')
-        words = load(path + 'words')
-        wordnet = load(path + 'wordnet')
+    # Check if train sentences exists
+    if glob.glob(path + 'words_train' + '.pkl') and glob.glob(path + 'wordnet_train' + '.pkl'):
+        print('\nTrain sentences found!')
+        train_words_x = load(path + 'words_train')
+        train_words_y = load(path + 'wordnet_train')
     else:
-        words, wordnet = create_dictionary(dataset_name, gold2dic)
+        print('\nTrain sentences not found!')
+        train_words_x, train_words_y = create_dictionary(train_dataset, gold2dic, train=True)
+
+    # Check if dev sentences exists
+    if glob.glob(path + 'words_dev' + '.pkl') and glob.glob(path + 'wordnet_dev' + '.pkl'):
+        print('\nDev sentences found!')
+        dev_words_x = load(path + 'words_dev')
+        dev_words_y = load(path + 'wordnet_dev')
+    else:
+        print('\nDev sentences not found!')
+        dev_words_x, dev_words_y = create_dictionary(dev_dataset, gold2dic, train=False)
 
     # Check if tokenizer exists
     if glob.glob(path + 'tokenizer' + '.pkl'):
         print('\nTokenizer found!')
         t = load(path + 'tokenizer')
     else:
+        print('\nTokenizer not found!')
         # Tokenizer
         # num_words=20000,
-        t = Tokenizer(filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t', oov_token='<OOV>')
-        t.fit_on_texts(words)
-        t.fit_on_texts(wordnet)
+        t = Tokenizer(num_words=num_words, filters='!"#$%&()*+,-./;<=>?@[\\]^_`{|}~\'\t', oov_token='<OOV>')
+        t.fit_on_texts(train_words_x)
+        t.fit_on_texts(train_words_y)
         save(t, path + 'tokenizer')
 
     # Apply tokenizer
-    wordsIds = t.texts_to_sequences(words)
-    wordnetIds = t.texts_to_sequences(wordnet)
-
-    # TODO consider only high frequence words
-    # TODO consider lenght of 5 for the sentences
+    train_x = t.texts_to_sequences(train_words_x)
+    train_y = t.texts_to_sequences(train_words_y)
+    dev_x = t.texts_to_sequences(dev_words_x)
+    dev_y = t.texts_to_sequences(dev_words_y)
 
     # Print summary
     print('\nPREPROCESSING SUMMARY')
     print('\tTotal words tokens:', len([y for y in t.word_index if not y.startswith('wn:')]))
     print('\tTotal sense tokens:', len([y for y in t.word_index if y.startswith('wn:')]))
-    print('\tBiggest sentence:', max(len(l) for l in wordsIds))
-    print('\tSmallest sentence:', min(len(l) for l in wordsIds))
+    print('\tBiggest sentence:', max(len(l) for l in train_x))
+    print('\tSmallest sentence:', min(len(l) for l in train_x))
 
     # Print sample sentences
     print('\nSample word sentences')
-    for i in words[0:5]:
+    for i in train_words_x[0:5]:
         print(i)
 
     print('\nSample wordnet sentences')
-    for i in wordnet[0:5]:
+    for i in train_words_y[0:5]:
         print(i)
 
     # Print sample sentences with ids
     print('\nSample id sentences')
-    for i in wordsIds[0:5]:
+    for i in train_x[0:5]:
         print(i)
 
     print('\nSample id sense sentences')
-    for i in wordnetIds[0:5]:
+    for i in train_y[0:5]:
         print(i)
 
     # Add padding
-    wordsIds = pad_sequences(wordsIds, truncating='post', padding='post', maxlen=sentence_size)
-    wordnetIds = pad_sequences(wordnetIds, truncating='post', padding='post', maxlen=sentence_size, value=0)
+    train_x = pad_sequences(train_x, truncating='post', padding='post', maxlen=sentence_size)
+    train_y = pad_sequences(train_y, truncating='post', padding='post', maxlen=sentence_size, value=0)
+    dev_x = pad_sequences(dev_x, truncating='post', padding='post', maxlen=sentence_size)
+    dev_y = pad_sequences(dev_y, truncating='post', padding='post', maxlen=sentence_size, value=0)
 
     # To categorical
-    wordnetIds = to_categorical(wordnetIds, num_classes=len([y for y in t.word_index]))
+    train_y = to_categorical(train_y, num_classes=num_words)
+    dev_y = to_categorical(dev_y, num_classes=num_words)
 
-    # Train test split
-    train_x, dev_x, train_y, dev_y = train_test_split(wordsIds, wordnetIds, test_size=.1)
+    print('\nSHAPES')
+    print('\tdev_x:', dev_x.shape)
+    print('\tdev_y:', dev_y.shape)
+    print('\ttrain_x:', train_x.shape)
+    print('\ttrain_y:', train_y.shape)
 
     # Dataset
     dataset = {'train_x': train_x, 'dev_x': dev_x, 'train_y': train_y, 'dev_y': dev_y}
@@ -171,4 +203,4 @@ def load_data(dataset_name, path="../resources/", gold_name='gold2dic', sentence
 if __name__ == '__main__':
     args = parse_args()
 
-    _ = load_data(dataset_name=args.dataset_name, path=args.resource_folder, gold_name=args.gold_name)
+    _ = load_data(train_dataset=args.train_dataset, dev_dataset=args.dev_dataset, path=args.resource_folder, gold_name=args.gold_name)
